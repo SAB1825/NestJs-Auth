@@ -11,6 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtPayload } from './types/jwt-payload.type';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
 
 export type AuthResult = {
   user: SafeUser;
@@ -119,5 +120,47 @@ export class AuthServive {
       accessToken,
       refreshToken,
     };
+  }
+
+  async refresh(dto: RefreshTokenDto): Promise<AuthResult> {
+    let payload: JwtPayload;
+
+    try {
+      payload = await this.jwtService.verifyAsync<JwtPayload>(
+        dto.refreshToken,
+        {
+          secret: this.configService.getOrThrow<string>(
+            'REFRESH_TOKEN_SECRET'
+          )
+        }
+      )
+    } catch (error) {
+      throw new UnauthorizedException('Invalid or expired refresh token')
+    }
+
+    const user = await this.usersService.findById(payload.sub);
+    if (!user || !user.refreshTokenHash) {
+      throw new UnauthorizedException("Invalid or expired refresh token");
+    }
+
+    const isRefreshTokenValid = await argon2.verify(
+      user.refreshTokenHash,
+      dto.refreshToken
+    );
+    if (!isRefreshTokenValid) {
+      throw new UnauthorizedException("Invalid or expired refresh token")
+    };
+
+    const newPayload: JwtPayload = { sub: user.id, email: user.email };
+    const { accessToken, refreshToken } = await this.issueTokens(newPayload)
+
+    const refreshTokenHash = await argon2.hash(refreshToken);
+    await this.usersService.updateRefreshTokenHash(user.id, refreshTokenHash);
+
+    return {
+      user: this.usersService.toSafeUser(user),
+      accessToken,
+      refreshToken
+    }
   }
 }
