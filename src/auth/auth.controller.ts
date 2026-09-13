@@ -5,6 +5,9 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  Query,
+  Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import { AuthResult, AuthServive } from './auth.service';
@@ -15,10 +18,19 @@ import { AccessTokenGaurd } from './gaurds/access-token.gaurd';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { JwtPayload } from './types/jwt-payload.type';
 import { SafeUser } from '../users/users.service';
+import { GoogleAuthService } from './google-auth.services';
+import type { Response, Request } from "express";
+import { ConfigService } from '@nestjs/config';
+
+const OAUTH_STATE_COOKIE = 'google_oauth_state'
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthServive) {}
+  constructor(
+    private readonly authService: AuthServive,
+    private readonly googleAuthService: GoogleAuthService,
+    private readonly configService: ConfigService
+  ) {}
 
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
@@ -51,4 +63,82 @@ export class AuthController {
   async getProfile(@CurrentUser() user: JwtPayload): Promise<SafeUser> {
     return this.authService.getProfile(user.sub);
   }
+
+  @Get('google')
+  googleAuth(@Res() res: Response): void {
+    const state = this.googleAuthService.generateState();
+    res.cookie(OAUTH_STATE_COOKIE, state, {
+      httpOnly: true,
+      secure: this.configService.get('NODE_ENV') === 'production',
+      sameSite: 'lax',
+      maxAge: 5 * 60 * 1000,
+    })
+
+    const authorizationUrl = this.googleAuthService.getAuthorizationUrl(state);
+    res.redirect(authorizationUrl);
+  }
+
+  @Get("google/callback")
+  async googleCallback(
+    @Query('code') code: string,
+    @Query('state') state: string,
+    @Req() req: Request,
+    @Res() res: Response
+  ): Promise<void> {
+    const cookieState = (req.cookies as Record<string, string> | undefined)?.[
+      OAUTH_STATE_COOKIE
+    ];
+    res.clearCookie(OAUTH_STATE_COOKIE);
+
+    const frontendUrl = this.configService.getOrThrow<string>('FRONTEND_URL');
+
+    if(!code || !state || !cookieState || state !== cookieState) {
+      res.redirect(`${frontendUrl}/auth/callback?error=invalid_oauth_state`);
+      return;
+    }
+
+    try {
+      const googleAccessToken = await this.googleAuthService.exchangeCodeForAccessToken(code);
+      const profile = await this.googleAuthService.fetchProfile(
+        googleAccessToken
+      );
+
+      const result = await this.authService.loginWithOAuthProfile({
+        email: profile.email,
+        name: profile.name,
+        avatarUrl: profile.avatarUrl,
+        googleId: profile.googleId
+      })
+
+      this.setAuthCookies(res, result.accessToken, result.refreshToken);
+      res.redirect(`${frontendUrl}/auth/callback`)
+    } catch (error) {
+      console.log(error)
+      res.redirect(`${frontendUrl}/auth/callback?error=google_auth_failed`)
+    }
+  }
+
+  private setAuthCookies(
+    res: Response,
+    accessToken: string,
+    refreshToken: string,
+  ): void {
+    const isProduction = this.configService.get('NODE_ENV') === "production";
+
+    res.cookie('access_token', accessToken, {
+      httpOnly: isProduction,
+      secure: true,
+      sameSite: 'lax',
+      maxAge: 15 * 60 * 1000,
+    })
+
+
+    res.cookie('refresh_token', refreshToken, {
+      httpOnly: isProduction,
+      secure: true,
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    })
+  }
+
 }
