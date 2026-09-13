@@ -129,30 +129,28 @@ export class AuthServive {
       payload = await this.jwtService.verifyAsync<JwtPayload>(
         dto.refreshToken,
         {
-          secret: this.configService.getOrThrow<string>(
-            'REFRESH_TOKEN_SECRET'
-          )
-        }
-      )
+          secret: this.configService.getOrThrow<string>('REFRESH_TOKEN_SECRET'),
+        },
+      );
     } catch (error) {
-      throw new UnauthorizedException('Invalid or expired refresh token')
+      throw new UnauthorizedException('Invalid or expired refresh token');
     }
 
     const user = await this.usersService.findById(payload.sub);
     if (!user || !user.refreshTokenHash) {
-      throw new UnauthorizedException("Invalid or expired refresh token");
+      throw new UnauthorizedException('Invalid or expired refresh token');
     }
 
     const isRefreshTokenValid = await argon2.verify(
       user.refreshTokenHash,
-      dto.refreshToken
+      dto.refreshToken,
     );
     if (!isRefreshTokenValid) {
-      throw new UnauthorizedException("Invalid or expired refresh token")
-    };
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
 
     const newPayload: JwtPayload = { sub: user.id, email: user.email };
-    const { accessToken, refreshToken } = await this.issueTokens(newPayload)
+    const { accessToken, refreshToken } = await this.issueTokens(newPayload);
 
     const refreshTokenHash = await argon2.hash(refreshToken);
     await this.usersService.updateRefreshTokenHash(user.id, refreshTokenHash);
@@ -160,7 +158,23 @@ export class AuthServive {
     return {
       user: this.usersService.toSafeUser(user),
       accessToken,
-      refreshToken
+      refreshToken,
+    };
+  }
+
+  async logout(userId: string): Promise<{ success: true }> {
+    await this.usersService.clearRefreshToken(userId);
+    return {
+      success: true,
+    };
+  }
+
+  async getProfile(userId: string): Promise<SafeUser> {
+    const user = await this.usersService.findById(userId);
+    if (!user) {
+      throw new UnauthorizedException('User no longer exists');
     }
+
+    return this.usersService.toSafeUser(user);
   }
 }
