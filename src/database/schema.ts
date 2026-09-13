@@ -9,7 +9,7 @@ export const users = pgTable('users', {
   githubId: varchar('github_id', { length: 255 }).unique(),
   avatarUrl: varchar('avatar_url', { length: 512 }),
   refreshTokenHash: varchar('refresh_token_hash', { length: 255 }),
-  passwordResetTokenHash: varchar('password_reset_token_expires_at', {
+  passwordResetTokenHash: varchar('password_reset_token_hash', {
     length: 255,
   }),
   passwordResetTokenExpiresAt: timestamp('password_reset_token_expires_at', {
