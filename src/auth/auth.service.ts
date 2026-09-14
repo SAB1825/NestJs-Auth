@@ -12,6 +12,11 @@ import { JwtPayload } from './types/jwt-payload.type';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { MailService } from './mail.service';
+import { raw } from 'express';
+import { createHash, randomBytes } from 'crypto';
+import { ForgetPasswordDto } from './dto/forget-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 
 export type AuthResult = {
   user: SafeUser;
@@ -25,6 +30,7 @@ export class AuthServive {
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly mailService: MailService
   ) {}
 
   private normalizeEmail(email: string): string {
@@ -231,5 +237,55 @@ export class AuthServive {
       accessToken,
       refreshToken,
     };
+  }
+
+  private hashResetToken(rawToken: string): string {
+    return createHash('sha256').update(rawToken).digest('hex');
+  }
+
+  async forgotPasswor(dto: ForgetPasswordDto): Promise<{
+    success: true
+  }> {
+    const email = this.normalizeEmail(dto.email);
+    const user = await this.usersService.findByEmail(email);
+
+    if(user) {
+      const rawToken = randomBytes(32).toString('hex');
+      const tokenHash = this.hashResetToken(rawToken);
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+      await this.usersService.setPasswordResetToken(
+        user.id,
+        tokenHash,
+        expiresAt,
+      );
+
+      const resetBaseUrl = this.configService.getOrThrow<string>('PASSWORD_RESET_URL');
+      const resetUrl = `${resetBaseUrl}?token=${rawToken}`;
+
+      await this.mailService.sendPasswordResetEmail(user.email, resetUrl);
+    }
+
+    return {
+      success: true
+    }
+  }
+
+  async resetPasswor(dto: ResetPasswordDto): Promise<{
+    success: true
+  }> {
+    const tokenHash = this.hashResetToken(dto.token);
+
+    const user = await this.usersService.findByPasswordResetTokenHash(tokenHash)
+    if(!user || !user.passwordResetTokenExpiresAt || user.passwordResetTokenExpiresAt.getTime() < Date.now()) {
+      throw new UnauthorizedException('Invalid or expired reset token')
+    }
+
+    const passwordHash = await argon2.hash(dto.newPassword);
+    await this.usersService.resetPassword(user.id, passwordHash)
+
+    return {
+      success: true
+    }
   }
 }

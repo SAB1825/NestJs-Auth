@@ -22,6 +22,8 @@ import { GoogleAuthService } from './google-auth.services';
 import type { Response, Request } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { GithubAuthService } from './github-auth.service';
+import { ForgetPasswordDto } from './dto/forget-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 
 const OAUTH_STATE_COOKIE = 'google_oauth_state';
 const GITHUB_STATE_COOKIE = 'github_oauth_state';
@@ -173,6 +175,24 @@ export class AuthController {
       console.log('GIT: ', error);
       res.redirect(`${frontendUrl}/auth/callback?error=github_auth_failed`);
     }
+  }
+
+  @Post('forget-password')
+  @HttpCode(HttpStatus.OK)
+  async forgetPassword(
+    @Body() dto: ForgetPasswordDto
+  ): Promise<{ success :true }> {
+    return this.authService.forgotPasswor(dto);
+  }
+
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  async resetPassword(
+    @Body() dto: ResetPasswordDto,
+  ): Promise<{
+    success: true
+  }> {
+    return this.authService.resetPasswor(dto)
   }
 
   private setAuthCookies(
