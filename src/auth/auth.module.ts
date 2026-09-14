@@ -5,10 +5,16 @@ import { JwtModule } from '@nestjs/jwt';
 import { AuthController } from './auth.controller';
 import { AccessTokenGaurd } from './gaurds/access-token.gaurd';
 import { GoogleAuthService } from './google-auth.services';
+import { GithubAuthService } from './github-auth.service';
 
 @Module({
   imports: [UsersModule, JwtModule.register({})],
-  providers: [AuthServive, AccessTokenGaurd, GoogleAuthService],
+  providers: [
+    AuthServive,
+    AccessTokenGaurd,
+    GoogleAuthService,
+    GithubAuthService,
+  ],
   controllers: [AuthController],
 })
 export class AuthModule {}
